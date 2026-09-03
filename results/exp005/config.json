@@ -1,0 +1,16 @@
+{
+  "model": "rtdetr_l",
+  "architecture": "RT-DETR-L (Baidu), via Ultralytics' own RTDETR class",
+  "dataset": "exp005",
+  "epochs_run": 100,
+  "imgsz": 640,
+  "batch": 16,
+  "final_metrics_epoch_100": {
+    "precision": 0.946,
+    "recall": 0.924,
+    "mAP50": 0.975,
+    "mAP50-95": 0.922
+  },
+  "class_names": ["aluminium", "plastic", "metal", "stone", "ceramic", "glass"],
+  "note": "Training genuinely completed all 100 epochs (4.793 hours, confirmed via the wandb run's own output.log), but the process was interrupted during Ultralytics' final post-training validation pass on best.pt (log cuts off right after printing the model summary) - the automatic wrap-up (wandb artifact upload, models/ copy, results-split) never ran as a result. Finished manually: models/exp005_rtdetr_l_best.pt copied, args.yaml renamed to config.yaml, results/exp005/ populated from the run folder. No confusion_matrix.png/results.png/val_batch*.jpg exist because those are generated during that same interrupted final-validation pass. Metrics above are from epoch 100's own end-of-epoch validation (results.csv), the same validation set (1,847 images) as exp001/exp003/exp006."
+}

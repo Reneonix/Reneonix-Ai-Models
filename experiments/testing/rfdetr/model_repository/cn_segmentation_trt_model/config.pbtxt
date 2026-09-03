@@ -1,0 +1,28 @@
+name: "cn_segmentation_trt_model"
+backend: "tensorrt"
+default_model_filename: "model.engine"
+max_batch_size: 0
+input [
+  {
+    name: "input"
+    data_type: TYPE_FP32
+    dims: [1, 3, 432, 432 ]
+  }
+]
+output [
+  {
+    name: "dets"
+    data_type: TYPE_FP32
+    dims: [1, 200, 4]
+  },
+  {
+    name: "labels"
+    data_type: TYPE_FP32
+    dims: [1, 200, 51]
+  },
+  {
+    name: "masks"
+    data_type: TYPE_FP32
+    dims: [1, 200, 108, 108]
+  }
+]

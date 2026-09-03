@@ -1,0 +1,18 @@
+{
+  "model": "resnet50",
+  "dataset": "v2",
+  "img_size": 224,
+  "batch": 64,
+  "epochs_run": 29,
+  "lr": 0.0001,
+  "weight_decay": 0.0001,
+  "final_val_acc": 0.9937234506045093,
+  "class_names": [
+    "aluminium",
+    "ceramic",
+    "glass",
+    "metal",
+    "plastic",
+    "stone"
+  ]
+}

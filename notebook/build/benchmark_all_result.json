@@ -1,0 +1,150 @@
+{
+  "image_resolution": "3622x1779",
+  "tiles": 6,
+  "models": {
+    "exp001": {
+      "params_millions": 43.61,
+      "plain": {
+        "avg_ms": 5.82,
+        "median_ms": 5.69,
+        "min_ms": 5.53,
+        "max_ms": 6.61,
+        "fps": 171.8
+      },
+      "sahi": {
+        "avg_ms": 35.17,
+        "median_ms": 34.53,
+        "min_ms": 29.04,
+        "max_ms": 46.65,
+        "fps": 28.4
+      },
+      "e2e_plain": {
+        "avg_ms": 87.61,
+        "median_ms": 87.19,
+        "min_ms": 83.11,
+        "max_ms": 92.68,
+        "fps": 11.4
+      }
+    },
+    "exp002": {
+      "params_millions": 9.47,
+      "plain": {
+        "avg_ms": 6.03,
+        "median_ms": 5.53,
+        "min_ms": 5.35,
+        "max_ms": 11.94,
+        "fps": 165.7
+      },
+      "sahi": {
+        "avg_ms": 15.43,
+        "median_ms": 14.7,
+        "min_ms": 3.0,
+        "max_ms": 25.3,
+        "fps": 64.8
+      },
+      "e2e_plain": {
+        "avg_ms": 79.87,
+        "median_ms": 79.14,
+        "min_ms": 69.66,
+        "max_ms": 87.21,
+        "fps": 12.5
+      }
+    },
+    "exp003": {
+      "params_millions": 24.99,
+      "plain": {
+        "avg_ms": 11.6,
+        "median_ms": 11.04,
+        "min_ms": 10.33,
+        "max_ms": 18.66,
+        "fps": 86.2
+      },
+      "sahi": {
+        "avg_ms": 33.69,
+        "median_ms": 33.62,
+        "min_ms": 29.45,
+        "max_ms": 37.21,
+        "fps": 29.7
+      },
+      "e2e_plain": {
+        "avg_ms": 91.74,
+        "median_ms": 91.15,
+        "min_ms": 82.76,
+        "max_ms": 103.43,
+        "fps": 10.9
+      }
+    },
+    "exp004": {
+      "params_millions": 23.52,
+      "plain": {
+        "avg_ms": 3.33,
+        "median_ms": 3.05,
+        "min_ms": 1.43,
+        "max_ms": 5.3,
+        "fps": 300.2
+      },
+      "sahi": {
+        "avg_ms": 4.69,
+        "median_ms": 4.01,
+        "min_ms": 2.0,
+        "max_ms": 10.63,
+        "fps": 213.3
+      },
+      "e2e_plain": {
+        "avg_ms": 77.63,
+        "median_ms": 77.51,
+        "min_ms": 72.58,
+        "max_ms": 84.53,
+        "fps": 12.9
+      }
+    },
+    "exp005": {
+      "params_millions": 32.0,
+      "plain": {
+        "avg_ms": 13.93,
+        "median_ms": 13.84,
+        "min_ms": 13.49,
+        "max_ms": 14.88,
+        "fps": 71.8
+      },
+      "sahi": {
+        "avg_ms": 46.26,
+        "median_ms": 45.69,
+        "min_ms": 42.28,
+        "max_ms": 51.77,
+        "fps": 21.6
+      },
+      "e2e_plain": {
+        "avg_ms": 96.87,
+        "median_ms": 96.04,
+        "min_ms": 89.11,
+        "max_ms": 107.22,
+        "fps": 10.3
+      }
+    },
+    "exp006": {
+      "params_millions": 9.47,
+      "plain": {
+        "avg_ms": 6.7,
+        "median_ms": 5.73,
+        "min_ms": 5.33,
+        "max_ms": 12.11,
+        "fps": 149.2
+      },
+      "sahi": {
+        "avg_ms": 14.76,
+        "median_ms": 14.63,
+        "min_ms": 10.6,
+        "max_ms": 18.68,
+        "fps": 67.7
+      },
+      "e2e_plain": {
+        "avg_ms": 85.24,
+        "median_ms": 84.45,
+        "min_ms": 80.68,
+        "max_ms": 95.49,
+        "fps": 11.7
+      }
+    }
+  }
+}

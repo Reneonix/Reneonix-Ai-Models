@@ -1,0 +1,49 @@
+# Dataset - never shared to GitHub, per project policy
+data/raw/
+data/versions/
+
+# Demo/source videos - large, not source code
+videos/
+
+# Trained weights - large binaries, some exceed GitHub's 100MB limit; code-only repo
+experiments/*/weights/
+experiments/*/base_stage/weights/
+models/*.pt
+
+# wandb local sync caches - large, personal, not reproducible source
+experiments/*/wandb/
+experiments/*/base_stage/wandb/
+wandb/
+
+# Pretrained base-model checkpoints auto-downloaded by Ultralytics into src/, or the ReID model
+# auto-downloaded to the project root by yr_sahi_botsort.py - re-downloadable, not this
+# project's own trained weights
+src/*.pt
+src/weights/
+yolo26n-reid.onnx
+
+# Full-resolution prediction preview PNGs (~8MB each) - the same visual content already exists
+# compressed (~150-220KB) in notebook/build/report_assets/ for the report; keeping both is
+# redundant for a code repo
+results/predicted_images/
+
+# Stock/reference models under experiments/testing/ - not this project's own trained weights,
+# several exceed GitHub's 100MB hard limit outright
+experiments/testing/**/*.pt
+experiments/testing/**/*.onnx
+experiments/testing/**/*.engine
+experiments/testing/**/*.zip
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# OS/editor cruft
+.DS_Store
+Thumbs.db
+
+# Claude Code local config
+.claude/

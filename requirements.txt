@@ -1,0 +1,32 @@
+# Core dependencies for the waste identification project.
+#
+# IMPORTANT - torch/torchvision:
+# Do NOT just `pip install -r requirements.txt` for these two. The plain PyPI
+# builds are CPU-only and will silently replace a working CUDA install (this
+# has happened before in this project - see README). Install them first, from
+# PyTorch's own CUDA index, matching your GPU/driver (this project uses an
+# RTX 5080, which needs the cu128 build):
+#
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+#
+# Then install everything else normally:
+#
+#   pip install -r requirements.txt
+#
+# If you ever `pip install --upgrade ultralytics` later, it can pull a plain
+# CPU torch/torchvision again as a dependency - re-run the command above if so.
+
+ultralytics==8.4.124
+wandb==0.28.2
+opencv-python==5.0.0.93
+numpy==2.4.6
+PyYAML==6.0.3
+
+# RF-DETR (exp005 / "CircleNet") was removed from this project 2026-08-28 after three
+# unrecoverable training crashes (two silent hangs, one confirmed native access-violation
+# segfault in python311.dll ~5min after epoch 0 finished - see git history / prior README
+# versions if reviving this is ever worth it). `rfdetr[train,loggers]` uninstalled; if you
+# reinstall it for any reason, re-verify CUDA torch AND cv2 GUI support survived it - that
+# extra pulls in `roboflow` -> `opencv-python-headless`, which silently overwrites regular
+# opencv-python's files on Windows (same site-packages/cv2/ folder) and can delete cv2
+# entirely if you later uninstall the wrong one. See the Notes section in README.md.
