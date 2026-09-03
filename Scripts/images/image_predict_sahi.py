@@ -50,6 +50,7 @@ WEIGHTS = "d:/Reneonix/yolo_projects/Wastes_identification/experiments/exp001_yo
 # WEIGHTS = "d:/Reneonix/yolo_projects/Wastes_identification/experiments/exp005_rtdetr_l/weights/best.pt"    # MODEL_TYPE = "rtdetr"
 # WEIGHTS = "d:/Reneonix/yolo_projects/Wastes_identification/experiments/exp006_yolo26s_finetuned/weights/best.pt"
 # WEIGHTS = "d:/Reneonix/yolo_projects/Wastes_identification/experiments/exp007_yolov8l_AGI/weights/best.pt"   # 5-class AGI dataset - not comparable to the 6-class models above
+# WEIGHTS = "d:/Reneonix/yolo_projects/Wastes_identification/experiments/exp008_resnet50_AGI/weights/best.pt"   # MODEL_TYPE = "resnet_tiled" - AGI classifier, 5 classes, pairs with exp007
 
 PROJECT_ROOT = "d:/Reneonix/yolo_projects/Wastes_identification"
 INPUT_DIR = f"{PROJECT_ROOT}/results/testing_images"

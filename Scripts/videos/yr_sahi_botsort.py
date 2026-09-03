@@ -63,10 +63,12 @@ from roi_utils import load_roi, crop_to_roi, clamp_roi_to_frame, draw_dotted_rec
 # ---------------- CONFIG ----------------
 # YOLO_WEIGHTS = "d:/Reneonix/yolo_projects/Wastes_identification/experiments/exp003_yolo26l_p2/weights/best.pt"
 # YOLO_WEIGHTS = "d:/Reneonix/yolo_projects/Wastes_identification/experiments/exp001_yolov8l/weights/best.pt"
-YOLO_WEIGHTS = "d:/Reneonix/yolo_projects/Wastes_identification/experiments/exp007_yolov8l_AGI/weights/best.pt"   # 5-class AGI dataset - RESNET_WEIGHTS below (exp004) is a 6-class classifier with a different taxonomy (aluminium/metal split, no "ferrous"), so its per-class labels won't line up cleanly with this YOLO model's own classes if you swap to it
+YOLO_WEIGHTS = "d:/Reneonix/yolo_projects/Wastes_identification/experiments/exp007_yolov8l_AGI/weights/best.pt"   # 5-class AGI dataset - pair with exp008 (RESNET_WEIGHTS below), NOT exp004, which is a 6-class classifier with a different taxonomy
 
-YOLO_RESULTS_CSV = "d:/Reneonix/yolo_projects/Wastes_identification/results/exp001/results.csv"
-RESNET_WEIGHTS = "d:/Reneonix/yolo_projects/Wastes_identification/experiments/exp004_resnet50/weights/best.pt"
+YOLO_RESULTS_CSV = "d:/Reneonix/yolo_projects/Wastes_identification/results/exp007_AGI/results.csv"   # must match whichever YOLO_WEIGHTS is active above - exp007's own results, not exp001's
+# RESNET_WEIGHTS = "d:/Reneonix/yolo_projects/Wastes_identification/experiments/exp004_resnet50/weights/best.pt"
+RESNET_WEIGHTS = "d:/Reneonix/yolo_projects/Wastes_identification/experiments/exp008_resnet50_AGI/weights/best.pt"   # 5-class AGI classifier - pairs with exp007 above, NOT the 6-class exp001/exp003/exp005/exp006 YOLO models
+RESNET_RESULTS_CSV = "d:/Reneonix/yolo_projects/Wastes_identification/results/exp008_AGI/results.csv"   # must match whichever RESNET_WEIGHTS is active above
 VIDEO = "d:/Reneonix/yolo_projects/Wastes_identification/videos/agi/m/v2.mp4"   # default - overridden by a CLI argument if given
 
 CONF = 0.7        # minimum YOLO detection confidence to keep a box (localization only)
@@ -103,6 +105,15 @@ def load_validation_accuracy(results_csv, precision_key="metrics/precision(B)", 
         "mAP50": float(last[map50_key]), "mAP50-95": float(last[map5095_key]),
         "epoch": int(last["epoch"]),
     }
+
+
+def load_resnet_val_acc(results_csv):
+    """exp004/exp008's own results.csv schema is different from YOLO's (train_acc/val_acc
+    columns, not precision/recall/mAP) - read it directly rather than reusing load_validation_accuracy."""
+    with open(results_csv, newline="") as f:
+        rows = list(csv.DictReader(f))
+    last = rows[-1]
+    return float(last["val_acc"])
 
 
 def summarize(label, values_ms):
@@ -432,7 +443,8 @@ def main():
     print(f"\nYOLO detector accuracy (validation set, epoch {yolo_acc['epoch']}) - localization reference only:")
     print(f"  Precision: {yolo_acc['precision']:.4f}  Recall: {yolo_acc['recall']:.4f}  "
           f"mAP50: {yolo_acc['mAP50']:.4f}  mAP50-95: {yolo_acc['mAP50-95']:.4f}")
-    print(f"ResNet classifier accuracy (validation set): 0.9937 (see results/exp004/results.csv)")
+    resnet_acc = load_resnet_val_acc(RESNET_RESULTS_CSV)
+    print(f"ResNet classifier accuracy (validation set): {resnet_acc:.4f} (see {RESNET_RESULTS_CSV})")
 
     print("\n--- LATENCY (separate) ---")
     summarize(f"YOLO+SAHI detection ({len(tile_boxes)} tiles/frame, 1 batched forward pass)", yolo_times)

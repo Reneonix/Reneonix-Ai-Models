@@ -17,15 +17,27 @@ python yr_byte.py [video]           # no SAHI + ByteTrack - fastest, worse on sm
 python yr_byte_sahi.py [video]      # 6-tile SAHI + ByteTrack - middle ground
 ```
 
+**Two-model, lazy classification:**
+```
+python yr_byte_lazy.py [video]      # yr_byte.py, but classifies each track ONCE and caches
+```
+Same YOLO + ByteTrack + ResNet pipeline as `yr_byte.py`, but instead of reclassifying every
+tracked object every frame, it classifies once per track and locks the result (immediately if
+one prediction is confident enough, otherwise after a few agreeing votes, capped either way) -
+solves "FPS drops as object count rises," since a busier conveyor no longer means a
+proportionally bigger ResNet batch every frame. The printed report shows exactly how many
+ResNet calls were saved vs. `yr_byte.py`'s classify-every-frame approach. Same object counts,
+same accuracy - just far fewer redundant classifications.
+
 All scripts open a live OpenCV window (paced to the source video's own FPS), and print a
 benchmark report (inference/tracking/classification latency, end-to-end latency, achievable
-FPS, and for the `yr_*.py` pipelines: unique-object counts per class) on quit (`q`).
+FPS, and object/detection counts per class) on quit (`q`).
 
 `yolo26n-reid.onnx` lives here alongside `yr_sahi_botsort.py` - its ReID appearance-embedding
 model, referenced by a relative path (`REID_MODEL = "yolo26n-reid.onnx"`), so run that script
 from inside this folder (or keep this file next to it if you move it elsewhere).
 
-The three `yr_*.py` scripts import shared ROI-cropping helpers from `../roi/roi_utils.py`
+The four `yr_*.py` scripts import shared ROI-cropping helpers from `../roi/roi_utils.py`
 (added via `sys.path.insert(...)` at the top of each, since `Scripts/` was split into
 `camera/`, `videos/`, `images/`, `roi/` subfolders - see `../roi/README.md` for the ROI
 selector tool itself).

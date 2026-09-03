@@ -1,33 +1,36 @@
 """
-Two-model pipeline: plain YOLO (single-pass, no SAHI) for detection/
-localization only + ByteTrack for persistent per-object tracking + ResNet-50
-for the final classification of each tracked object's cropped region.
+Two-model pipeline: plain YOLO (single-pass, no SAHI) for detection/localization + ByteTrack for
+persistent per-object tracking + ResNet-50 for classification - but LAZY, not per-frame.
 
-This is the lighter counterpart to yr_sahi_botsort.py:
+WHY THIS EXISTS (the problem it solves):
+yr_byte.py classifies every tracked object EVERY frame it's visible - fine when the conveyor is
+sparse, but FPS drops as object count rises, because the ResNet batch grows with however many
+objects happen to be on screen that frame. Most of that is wasted work: an object's material
+class doesn't change frame to frame, so reclassifying it 20-30 times over its life on the belt
+adds no real information, just cost.
 
-  - NO SAHI tiling: one plain forward pass on the full frame, not 6 tiles
-    batched together. Faster, but worse at catching small/distant objects
-    (SAHI's whole point was upscaling tiles so small objects appear bigger).
-  - ByteTrack instead of BoT-SORT+ReID: motion/IoU-only association, no
-    appearance-embedding model. Cheaper (no ONNX ReID network to run every
-    frame), simpler, and pairs naturally with plain detection - SAHI's dense
-    per-tile detections were the main case where appearance-based matching
-    earned its extra cost (many similar-looking objects close together);
-    without SAHI there are typically fewer simultaneous detections per frame,
-    so plain motion/IoU matching is usually adequate.
+THE FIX - classify once per object, then lock:
+  1. Already locked (see below)?  -> reuse the cached class, skip ResNet entirely.
+  2. Not locked yet               -> run ResNet on it this frame, record the prediction as one
+                                       vote for that track.
+  3. Enough evidence to lock?
+       - a single vote with confidence >= RESNET_LOCK_CONF (most objects, most frames), OR
+       - RESNET_CONSENSUS_VOTES agreeing votes accumulated, OR
+       - RESNET_MAX_ATTEMPTS reached regardless (bounds worst-case cost for a stubbornly
+         ambiguous object - it locks to whatever's most common so far)
+     -> lock the track to its majority-vote class; it costs zero further ResNet calls for the
+        rest of its life on screen.
+     Otherwise -> leave unlocked, it'll be classified again next frame it's seen.
 
-WHY YOLO+RESNET AT ALL (unchanged from the SAHI version):
-exp001's own classification head shows near-zero confusion between real
-classes on held-out validation - but live testing showed reflective/glossy
-materials (aluminium, ceramic, plastic) occasionally misclassified as glass.
-This pipeline hands the actual class decision to a dedicated ResNet trained
-specifically on cropped object patches with heavy lighting/color-jitter
-augmentation (src/exp004_resnet50.py, 99.4% val accuracy), while YOLO is used
-purely to localize (its own predicted class is discarded for the final label).
+In steady state this means most objects cost ONE ResNet call over their entire tracked
+lifetime, not one per frame - so a busier conveyor (more simultaneous tracks) no longer means
+a proportionally bigger ResNet batch every single frame. The final report below prints exactly
+how many ResNet calls were actually made vs how many track-frame occurrences there were, so the
+effect is visible, not just assumed.
 
-The final report counts UNIQUE tracked objects (majority vote of that
-object's ResNet predictions across every frame it was seen in), not one
-count per frame it happened to be visible.
+One structural note (not a bug): this keys off ByteTrack's track_id. If the tracker ever loses
+and reassigns a new ID to the same physical object (occlusion, leaving/re-entering frame), that
+"new" ID starts fresh evidence-gathering - one extra ResNet call, same as any new object.
 
 Press 'q' (video window focused) to stop; report + object counts print either way.
 """
@@ -70,9 +73,15 @@ CONF = 0.5    # minimum YOLO detection confidence to keep a box (localization on
 IMGSZ = 640          # YOLO inference size (matches training imgsz)
 DEVICE = 0           # RTX 5080 (cuda:0); set to "cpu" if no GPU available
 BOX_THICKNESS = 2
-RESNET_IMG_SIZE = 224   # matches exp004_resnet50.py's transform
+RESNET_IMG_SIZE = 224   # matches exp004_resnet50.py's/exp008_resnet50_agi.py's transform
 
 TRACKER_YAML = "bytetrack.yaml"   # ships with Ultralytics; loaded the same way model.track() does
+
+# ---- lazy-classification lock rule (see module docstring) ----
+RESNET_LOCK_CONF = 0.90         # a single vote this confident locks the track immediately
+RESNET_CONSENSUS_VOTES = 3      # or lock once this many votes agree (doesn't need to be consecutive)
+RESNET_MAX_ATTEMPTS = 5         # hard cap - locks to the majority-so-far regardless past this,
+                                  # so a persistently ambiguous object doesn't get reclassified forever
 
 # DEVICE (bare int) is what Ultralytics' own model.predict(device=...) expects, matching every
 # other script in this project - but raw PyTorch calls (torch.load's map_location, tensor.to())
@@ -93,8 +102,6 @@ def load_validation_accuracy(results_csv, precision_key="metrics/precision(B)", 
 
 
 def load_resnet_val_acc(results_csv):
-    """exp004/exp008's own results.csv schema is different from YOLO's (train_acc/val_acc
-    columns, not precision/recall/mAP) - read it directly rather than reusing load_validation_accuracy."""
     with open(results_csv, newline="") as f:
         rows = list(csv.DictReader(f))
     last = rows[-1]
@@ -110,16 +117,14 @@ def summarize(label, values_ms):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="YOLO (plain) detect -> ByteTrack -> ResNet classify pipeline")
+    parser = argparse.ArgumentParser(description="YOLO (plain) detect -> ByteTrack -> lazy ResNet classify pipeline")
     parser.add_argument("video", nargs="?", default=VIDEO,
                          help=f"Path to a video file (default: {VIDEO})")
     return parser.parse_args()
 
 
 def yolo_infer(model, frame):
-    """Single plain forward pass over the full frame (no tiling). Ultralytics' own postprocessing
-    already applies NMS internally for a single-image call, so no extra merge step is needed
-    here (unlike the SAHI version, where duplicates can arise ACROSS separately-processed tiles)."""
+    """Single plain forward pass over the full frame (no tiling)."""
     t0 = time.time()
     results = model.predict(frame, imgsz=IMGSZ, conf=CONF, device=DEVICE, verbose=False)
     yolo_ms = (time.time() - t0) * 1000
@@ -132,8 +137,8 @@ def yolo_infer(model, frame):
 
 def load_resnet(weights_path):
     ckpt = torch.load(weights_path, map_location=TORCH_DEVICE, weights_only=False)
-    class_names = ckpt["class_names"]   # ImageFolder's own (alphabetical) order - saved correctly
-                                          # by exp004_resnet50.py, never assume/hardcode an order here
+    class_names = ckpt["class_names"]   # ImageFolder's own (alphabetical) order - never
+                                          # assume/hardcode an order here
     model = resnet50(weights=None)
     model.fc = nn.Linear(model.fc.in_features, len(class_names))
     model.load_state_dict(ckpt["model_state_dict"])
@@ -146,22 +151,17 @@ RESNET_STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1).to(TORCH_DEVIC
 
 
 def classify_crops(resnet_model, frame, boxes_xyxy):
-    """Crops every tracked box out of the frame, batches them into ONE ResNet forward pass, and
-    returns (predicted_class_idx, confidence, total_ms). BGR->RGB conversion matters: ImageFolder
-    (used in exp004_resnet50.py) loads images via PIL as RGB, so feeding raw OpenCV BGR crops here
-    without converting would silently mismatch the color channels the model was trained on.
-
-    Uses cv2.resize (fast, C-level) per crop + ONE batched GPU-side normalize, instead of a
-    per-crop torchvision transform pipeline - meaningfully cheaper with many objects per frame.
-    Timing covers the whole crop->resize->normalize->forward-pass cost, not just the final GPU
-    call - a forward-pass-only timer understates the real per-frame classification cost."""
+    """Crops the given boxes out of the frame, batches them into ONE ResNet forward pass. Called
+    only on the subset of tracked boxes that still need classifying this frame (see main loop) -
+    NOT every tracked box, which is the whole point of this script."""
     if len(boxes_xyxy) == 0:
         return np.array([], dtype=int), np.array([], dtype=float), 0.0
 
     t0 = time.time()
     h, w = frame.shape[:2]
-    crops = np.zeros((len(boxes_xyxy), RESNET_IMG_SIZE, RESNET_IMG_SIZE, 3), dtype=np.uint8)
-    for i, (x1, y1, x2, y2) in enumerate(boxes_xyxy.astype(int)):
+    boxes_np = boxes_xyxy.astype(int) if isinstance(boxes_xyxy, np.ndarray) else boxes_xyxy.cpu().numpy().astype(int)
+    crops = np.zeros((len(boxes_np), RESNET_IMG_SIZE, RESNET_IMG_SIZE, 3), dtype=np.uint8)
+    for i, (x1, y1, x2, y2) in enumerate(boxes_np):
         x1, y1 = max(0, x1), max(0, y1)
         x2, y2 = min(w, x2), min(h, y2)
         crop = frame[y1:y2, x1:x2]
@@ -187,10 +187,9 @@ def build_tracker():
 
 
 def update_tracker(tracker, boxes, scores, cls, frame):
-    """Feeds our own YOLO detections into Ultralytics' real BYTETracker (the same class
-    model.track() uses internally) by wrapping them in the exact Boxes format it expects:
-    (N,6) = [x1,y1,x2,y2,conf,cls]. Returns tracked (xyxy, track_id, conf, cls) arrays - empty
-    arrays if nothing is currently tracked."""
+    """Feeds our own YOLO detections into Ultralytics' real BYTETracker by wrapping them in the
+    exact Boxes format it expects: (N,6) = [x1,y1,x2,y2,conf,cls]. Returns tracked
+    (xyxy, track_id, conf, cls) arrays - empty arrays if nothing is currently tracked."""
     if len(boxes) == 0:
         det = np.zeros((0, 6), dtype=np.float32)
     else:
@@ -208,13 +207,18 @@ def update_tracker(tracker, boxes, scores, cls, frame):
     return tracked_xyxy, track_ids, track_conf, track_cls
 
 
-def draw_tracked_detections(frame, boxes, track_ids, resnet_preds, resnet_confs, class_names, class_colors):
+def draw_tracked_detections(frame, boxes, track_ids, classes, locked_ids, class_names, class_colors):
+    """`classes` is each track's current best-known class (locked, or best-vote-so-far if not
+    locked yet) - every visible track always has at least one vote by the time this is called,
+    since a never-before-seen track gets classified the very first frame it appears. A small
+    padlock glyph marks locked (no-more-ResNet-needed) tracks, just for visual sanity-checking."""
     annotated = frame.copy()
-    for box, tid, pred, conf in zip(boxes, track_ids, resnet_preds, resnet_confs):
+    for box, tid, cls_idx in zip(boxes, track_ids, classes):
         x1, y1, x2, y2 = [int(v) for v in box]
-        color = class_colors[int(pred) % len(class_colors)]
+        color = class_colors[int(cls_idx) % len(class_colors)]
         cv2.rectangle(annotated, (x1, y1), (x2, y2), color, BOX_THICKNESS)
-        label = f"#{tid} {class_names[int(pred)]} {conf:.2f}"
+        lock_mark = "*" if tid in locked_ids else ""
+        label = f"#{tid}{lock_mark} {class_names[int(cls_idx)]}"
         (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
         cv2.rectangle(annotated, (x1, y1 - th - 6), (x1 + tw + 4, y1), color, -1)
         cv2.putText(annotated, label, (x1 + 2, y1 - 4),
@@ -236,7 +240,9 @@ def main():
     yolo_model = YOLO(YOLO_WEIGHTS)
     resnet_model, class_names = load_resnet(RESNET_WEIGHTS)
     tracker = build_tracker()
-    print(f"ResNet class order: {class_names}\n")
+    print(f"ResNet class order: {class_names}")
+    print(f"Lazy classification: lock at conf>={RESNET_LOCK_CONF} or {RESNET_CONSENSUS_VOTES} "
+          f"agreeing votes, hard cap {RESNET_MAX_ATTEMPTS} attempts/track\n")
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -252,18 +258,10 @@ def main():
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     if roi:
-        width, height = roi[2], roi[3]   # everything downstream (tracking, display) now
-                                           # operates on the ROI-cropped frame, not the full frame
+        width, height = roi[2], roi[3]
     frame_budget = 1.0 / src_fps
     print(f"Detected source FPS: {src_fps:.2f}  |  Input resolution: {width}x{height}\n")
 
-    # WARM-UP: first-ever calls to YOLO/CUDA and the ResNet GPU kernels each carry a one-time
-    # JIT/compilation cost - running the full pipeline on the real first frame here, before the
-    # timed/displayed loop starts, keeps that cost out of both the benchmark stats and the
-    # visible playback (otherwise the video visibly crawls for its first few seconds). No
-    # tracker.reset() afterward: this frame's real detections seed real tracks, which is
-    # harmless (those objects get counted normally) - the one tradeoff is this exact frame isn't
-    # separately displayed/benchmarked, negligible for any video longer than a handful of frames.
     print("Warming up (first-call JIT/compile costs)...")
     ok, warm_frame = cap.read()
     if ok:
@@ -274,15 +272,19 @@ def main():
             classify_crops(resnet_model, warm_frame, wt_xyxy)
     print("Warm-up done.\n")
 
-    window = f"YOLO+ByteTrack+ResNet - {os.path.basename(video_path)}"
+    window = f"YOLO+ByteTrack+ResNet (lazy) - {os.path.basename(video_path)}"
     cv2.namedWindow(window, cv2.WINDOW_NORMAL)
 
     # per-frame timing buckets (all in ms)
     yolo_times, track_times, resnet_times, e2e_times = [], [], [], []
-    resnet_batch_sizes = []   # how many objects were batched into each frame's ResNet call
-    # track_id -> Counter of ResNet class predictions seen for that physical object, across
-    # every frame it was tracked in - the majority vote is the object's final counted class.
-    track_votes = defaultdict(Counter)
+    resnet_batch_sizes = []   # how many objects actually needed classifying each frame (NOT how
+                                # many were tracked - that's the whole point of this script)
+    track_votes = defaultdict(Counter)   # track_id -> Counter of ResNet predictions so far
+    locked_class = {}                     # track_id -> locked class idx, once evidence is sufficient
+    evidence_count = defaultdict(int)     # track_id -> how many ResNet calls made so far
+
+    total_track_occurrences = 0    # sum of len(track_ids) every frame - what yr_byte.py would have classified
+    total_resnet_calls = 0          # sum of actual ResNet calls made - what this script classified
 
     prev_time = time.time()
     frame_count = 0
@@ -301,28 +303,45 @@ def main():
         t0 = time.time()
         tracked_xyxy, track_ids, track_conf, _ = update_tracker(tracker, boxes, scores, cls, frame)
         track_times.append((time.time() - t0) * 1000)
+        total_track_occurrences += len(track_ids)
 
-        resnet_preds, resnet_confs, resnet_ms = classify_crops(resnet_model, frame, tracked_xyxy)
+        # ---- lazy classification: only the not-yet-locked tracks need a ResNet call ----
+        pending_mask = np.array([tid not in locked_class for tid in track_ids], dtype=bool) \
+            if len(track_ids) else np.zeros(0, dtype=bool)
+        pending_boxes = tracked_xyxy[pending_mask]
+        pending_ids = track_ids[pending_mask]
+
+        resnet_preds, resnet_confs, resnet_ms = classify_crops(resnet_model, frame, pending_boxes)
         if resnet_ms:
             resnet_times.append(resnet_ms)
-            resnet_batch_sizes.append(len(tracked_xyxy))
+            resnet_batch_sizes.append(len(pending_boxes))
+        total_resnet_calls += len(pending_boxes)
 
-        for tid, pred in zip(track_ids, resnet_preds):
-            track_votes[int(tid)][int(pred)] += 1
+        for tid, pred, conf in zip(pending_ids, resnet_preds, resnet_confs):
+            track_votes[tid][int(pred)] += 1
+            evidence_count[tid] += 1
+            top_class, top_count = track_votes[tid].most_common(1)[0]
+            if (conf >= RESNET_LOCK_CONF or top_count >= RESNET_CONSENSUS_VOTES
+                    or evidence_count[tid] >= RESNET_MAX_ATTEMPTS):
+                locked_class[tid] = top_class
 
-        annotated = draw_tracked_detections(frame, tracked_xyxy, track_ids, resnet_preds,
-                                             resnet_confs, class_names, CLASS_COLORS)
+        # every visible track has at least one vote by now (locked tracks were classified in an
+        # earlier frame; pending tracks were just classified above) - resolve current best class
+        current_classes = [
+            locked_class[tid] if tid in locked_class else track_votes[tid].most_common(1)[0][0]
+            for tid in track_ids
+        ]
+
+        annotated = draw_tracked_detections(frame, tracked_xyxy, track_ids, current_classes,
+                                             locked_class.keys(), class_names, CLASS_COLORS)
 
         now = time.time()
         disp_fps = 1.0 / max(now - prev_time, 1e-6)
         prev_time = now
-        cv2.putText(annotated, f"FPS: {disp_fps:.1f}  Tracked: {len(track_ids)}", (10, 30),
+        cv2.putText(annotated, f"FPS: {disp_fps:.1f}  Tracked: {len(track_ids)}  "
+                                f"Classifying: {len(pending_boxes)}", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-        # If an ROI is active, show the full uncropped frame with the processed/annotated ROI
-        # crop pasted back into its original spot, boundary marked with a light grey dotted
-        # rectangle - lets you see the active detection area in context instead of only ever
-        # seeing the cropped-down region filling the whole window.
         if roi:
             roi_box = clamp_roi_to_frame(raw_frame, roi)
             display_frame = raw_frame.copy()
@@ -348,9 +367,10 @@ def main():
         return
 
     yolo_acc = load_validation_accuracy(YOLO_RESULTS_CSV)
+    resnet_acc = load_resnet_val_acc(RESNET_RESULTS_CSV)
 
     print("\n" + "=" * 70)
-    print("YOLO (PLAIN) + BYTETRACK + RESNET PIPELINE - BENCHMARK & COUNT REPORT")
+    print("YOLO (PLAIN) + BYTETRACK + LAZY RESNET PIPELINE - BENCHMARK & COUNT REPORT")
     print("=" * 70)
     print(f"Video: {video_path}")
     print(f"Input resolution: {width}x{height}  |  Source FPS: {src_fps:.2f}  |  Frames processed: {frame_count}")
@@ -358,17 +378,23 @@ def main():
     print(f"\nYOLO detector accuracy (validation set, epoch {yolo_acc['epoch']}) - localization reference only:")
     print(f"  Precision: {yolo_acc['precision']:.4f}  Recall: {yolo_acc['recall']:.4f}  "
           f"mAP50: {yolo_acc['mAP50']:.4f}  mAP50-95: {yolo_acc['mAP50-95']:.4f}")
-    resnet_acc = load_resnet_val_acc(RESNET_RESULTS_CSV)
     print(f"ResNet classifier accuracy (validation set): {resnet_acc:.4f} (see {RESNET_RESULTS_CSV})")
+
+    print("\n--- LAZY CLASSIFICATION EFFECT ---")
+    print(f"  Track-frame occurrences (what yr_byte.py would classify): {total_track_occurrences}")
+    print(f"  Actual ResNet calls made (this script):                   {total_resnet_calls}")
+    if total_track_occurrences:
+        reduction = 100 * (1 - total_resnet_calls / total_track_occurrences)
+        print(f"  Reduction: {reduction:.1f}% fewer ResNet calls")
 
     print("\n--- LATENCY (separate) ---")
     summarize("YOLO detection (plain, single forward pass)", yolo_times)
     summarize("ByteTrack update", track_times)
     if resnet_times:
         print(f"  ResNet input size: {RESNET_IMG_SIZE}x{RESNET_IMG_SIZE}")
-        print(f"  ResNet batch inference size (objects/frame): avg {stats.mean(resnet_batch_sizes):.1f}  "
+        print(f"  ResNet batch size (objects actually classified/frame): avg {stats.mean(resnet_batch_sizes):.1f}  "
               f"min {min(resnet_batch_sizes)}  max {max(resnet_batch_sizes)}")
-        summarize("ResNet classification (1 batched forward pass per frame's tracked objects)", resnet_times)
+        summarize("ResNet classification (1 batched forward pass per frame's PENDING objects only)", resnet_times)
     else:
         print("  ResNet classification: no objects were ever tracked - nothing to report.")
 
@@ -379,10 +405,10 @@ def main():
     print(f"Source video FPS: {src_fps:.2f}  ->  "
           f"{'pipeline kept up with real time' if achievable_fps >= src_fps else 'pipeline is SLOWER than source FPS - live playback lagged behind real time'}.")
 
-    print("\n--- OBJECT COUNTS (unique tracked objects, majority-vote class) ---")
+    print("\n--- OBJECT COUNTS (unique tracked objects, locked/majority-vote class) ---")
     final_counts = Counter()
     for tid, votes in track_votes.items():
-        best_class_idx = votes.most_common(1)[0][0]
+        best_class_idx = locked_class[tid] if tid in locked_class else votes.most_common(1)[0][0]
         final_counts[class_names[best_class_idx]] += 1
 
     total_objects = sum(final_counts.values())

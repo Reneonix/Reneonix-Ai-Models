@@ -32,8 +32,9 @@ import shutil
 # Bump these for every new training run. RUN_NAME is built from them automatically,
 # enforcing the exp{id}_{model}_{dataset-version} convention project-wide. exp006 itself
 # (the imported laptop run this script reproduces) is already taken - this targets the next
-# free number for an actual from-scratch run through this script.
-EXP_ID = 8
+# free number for an actual from-scratch run through this script. Was originally 8, bumped to
+# 11 once exp007 (AGI YOLOv8L) and exp008 (AGI ResNet-50) claimed 7 and 8 instead.
+EXP_ID = 11
 MODEL_NAME = "yolo26s_finetuned"
 STAGE1_DATASET = "exp006"                    # base-training dataset, see data/versions/exp006/README.md
 STAGE2_DATASET = "exp001_exp003_exp006"      # fine-tuning dataset - this project's main dataset

@@ -7,6 +7,9 @@ Two datasets, two tasks:
   pipeline (exp001, exp003, exp005, exp006).
 - **Single-class "glass" detection** — a narrower glass-cullet detector (exp002), trained
   separately on its own dataset.
+- **5-class AGI detection + classification** — a separate external dataset/taxonomy
+  (`ferrous, plastic, stone, ceramic, glass`, no `aluminium`), its own two-model pipeline
+  (exp007 detector + exp008 classifier), never mixed with the 6-class pipeline above.
 
 ## Project structure
 
@@ -20,7 +23,9 @@ Wastes_identification/
 │   │   ├── exp002/                2,350 train / 587 val, single-class "glass" - used by exp002
 │   │   ├── exp004/                294,959 / 73,448 crops, 6-class classification (ImageFolder) - used by exp004
 │   │   ├── exp005/                7,389 train / 1,847 val, same split as exp001_exp003_exp006 - used by exp005
-│   │   └── exp006/                1,631 train / 408 val, 6-class - exp006's base-training stage
+│   │   ├── exp006/                1,631 train / 408 val, 6-class - exp006's base-training stage
+│   │   ├── exp007_AGI/            23,545 train / 5,887 val, 5-class (ferrous/plastic/stone/ceramic/glass) - used by exp007
+│   │   └── exp008_AGI/            2,287,754 / 569,306 crops, 5-class classification (ImageFolder) - used by exp008
 │   └── scripts/                   dataset build/import/convert scripts (see below)
 ├── src/
 │   ├── exp001_yolov8l.py           exp001's recipe (also targets exp009 if re-run) - yolov8l, differential LR
@@ -28,9 +33,11 @@ Wastes_identification/
 │   ├── exp003_yolo26l_p2.py        exp003's recipe - yolo26l + P2 head architecture experiment
 │   ├── exp004_resnet50.py          exp004's recipe - ResNet-50 second-stage material classifier
 │   ├── exp005_rtdetr.py            exp005's recipe - RT-DETR-L (Baidu), via Ultralytics' own RTDETR class
-│   ├── exp006_yolo26s_finetuned.py exp006's recipe (also targets exp008 if re-run) - yolo26s, TWO-STAGE
-│   └── exp007_yolov8l_agi.py       exp007's recipe - yolov8l, same differential-LR methodology as
-│                                      exp001, trained on the separate AGI dataset (5 classes)
+│   ├── exp006_yolo26s_finetuned.py exp006's recipe (also targets exp011 if re-run) - yolo26s, TWO-STAGE
+│   ├── exp007_yolov8l_agi.py       exp007's recipe - yolov8l, same differential-LR methodology as
+│   │                                  exp001, trained on the separate AGI dataset (5 classes)
+│   └── exp008_resnet50_agi.py      exp008's recipe - ResNet-50 second-stage classifier for exp007,
+│                                      trained on cropped AGI-dataset boxes (5 classes)
 ├── experiments/
 │   ├── exp001_yolov8l/            weights/, config.yaml, wandb/ (local sync cache)
 │   ├── exp002_yolo26s/            same - imported from a laptop-trained run
@@ -42,6 +49,8 @@ Wastes_identification/
 │   ├── exp007_yolov8l_AGI/        same - trained on the separate AGI dataset (5 classes, no
 │   │                                aluminium) - "AGI" deliberately kept in every folder name
 │   │                                this experiment touches, see below
+│   ├── exp008_resnet50_AGI/       same - ResNet-50 classifier pairing with exp007, trained on
+│   │                                cropped exp007_AGI boxes (data/versions/exp008_AGI)
 │   └── testing/                   NOT versioned experiments - stock/reference models for sanity-testing:
 │       ├── rtdetr/                 stock rtdetr-l.pt (COCO-pretrained) + testing.py
 │       └── rfdetr/                 Google's real CircularNet ONNX model + testing.py (see its own docstring)
@@ -70,12 +79,17 @@ for RT-DETR (Baidu's *different*, unrelated DETR-family architecture, trained vi
 Ultralytics' own `RTDETR` class - no separate package, no crashes) - `experiments/exp005_rtdetr_l/`
 is that run, not the removed one.
 
-**exp007 is a deliberate exception to the naming convention below**: it trains on a separate
-external dataset (`data/raw/AGI/` → `data/versions/exp007_AGI`, 5 classes - `ferrous, plastic,
-stone, ceramic, glass`, no separate `aluminium`), and **every folder it touches keeps "AGI" in
-its name** (`data/versions/exp007_AGI`, `experiments/exp007_yolov8l_AGI`, `results/exp007_AGI`,
-`models/exp007_yolov8l_AGI_best.pt`) so it's never confused with the main 6-class pipeline. Its
-metrics are **not comparable** to exp001/exp003/exp005/exp006 - different classes, different data.
+**exp007 and exp008 are a deliberate exception to the naming convention below**: they train on a
+separate external dataset (`data/raw/AGI/` → `data/versions/exp007_AGI`, 5 classes - `ferrous,
+plastic, stone, ceramic, glass`, no separate `aluminium`), and **every folder they touch keeps
+"AGI" in its name** (`data/versions/exp007_AGI`, `data/versions/exp008_AGI`,
+`experiments/exp007_yolov8l_AGI`, `experiments/exp008_resnet50_AGI`, `results/exp007_AGI`,
+`results/exp008_AGI`, `models/exp007_yolov8l_AGI_best.pt`, `models/exp008_resnet50_AGI_best.pt`)
+so neither is ever confused with the main 6-class pipeline. exp008 is exp007's second-stage
+classifier, the same two-model pattern as exp004 pairs with exp001/exp003/exp005/exp006 - do
+**not** pair exp007/exp008 with exp004, or exp001/exp003/exp005/exp006 with exp008, across the
+taxonomy boundary. Their metrics are **not comparable** to exp001/exp003/exp004/exp005/exp006 -
+different classes, different data.
 
 **exp006 is a two-stage pipeline**, imported from a laptop-trained run (`KAVIYA/` at the
 project root): base-trained on its own smaller dataset (`data/versions/exp006`), then
@@ -123,12 +137,12 @@ Two rules that make this reliable long-term:
    that's never "add them into an existing dataset folder" — it's a new folder with its own
    README documenting what changed. This means an experiment's dataset can never silently
    drift after the fact.
-2. **Every experiment gets the next sequential ID.** Taken so far: 1–7 (5 was tried and
-   abandoned once, then reclaimed - see above; 7 is the AGI-dataset run, a deliberate naming
-   exception - see above). `exp008` and `exp009` are already reserved
-   (`src/exp006_yolo26s_finetuned.py`'s and `src/exp001_yolov8l.py`'s own future-rerun targets)
-   — `exp010` is the actual next free one (`src/exp002_yolo26s.py`'s target, bumped from its
-   original exp007 once that number was claimed by the AGI run instead). Note
+2. **Every experiment gets the next sequential ID.** Taken so far: 1–8 (5 was tried and
+   abandoned once, then reclaimed - see above; 7 and 8 are the AGI-dataset runs, a deliberate
+   naming exception - see above). `exp009` and `exp010` are already reserved
+   (`src/exp001_yolov8l.py`'s and `src/exp002_yolo26s.py`'s own future-rerun targets) —
+   `exp011` is the actual next free one (`src/exp006_yolo26s_finetuned.py`'s target, bumped
+   from its original exp008 once that number was claimed by the AGI ResNet run instead). Note
    the filename of a script always says the experiment it *originally* produced, not
    whatever future run its `EXP_ID` constant currently targets.
 
@@ -189,6 +203,7 @@ python exp004_resnet50.py           # exp004's recipe: ResNet-50, second-stage m
 python exp005_rtdetr.py             # exp005's recipe: RT-DETR-L (Baidu), via Ultralytics' own RTDETR class
 python exp006_yolo26s_finetuned.py  # exp006's recipe (targets exp008 if re-run): yolo26s, TWO-STAGE (base + fine-tune)
 python exp007_yolov8l_agi.py        # exp007's recipe: yolov8l, same differential-LR methodology as exp001, on the AGI dataset (5 classes)
+python exp008_resnet50_agi.py       # exp008's recipe: ResNet-50 second-stage classifier pairing with exp007, on cropped AGI boxes (5 classes)
 ```
 
 `exp001_yolov8l.py` uses a differential learning rate: the first 5 backbone layers are frozen
