@@ -64,7 +64,9 @@ YOLO_RESULTS_CSV = "d:/Reneonix/yolo_projects/Wastes_identification/results/exp0
 # RESNET_WEIGHTS = "d:/Reneonix/yolo_projects/Wastes_identification/experiments/exp004_resnet50/weights/best.pt"
 RESNET_WEIGHTS = "d:/Reneonix/yolo_projects/Wastes_identification/experiments/exp008_resnet50_AGI/weights/best.pt"   # 5-class AGI classifier - pairs with exp007 above, NOT the 6-class exp001/exp003/exp005/exp006 YOLO models
 RESNET_RESULTS_CSV = "d:/Reneonix/yolo_projects/Wastes_identification/results/exp008_AGI/results.csv"   # must match whichever RESNET_WEIGHTS is active above
-VIDEO = "d:/Reneonix/yolo_projects/Wastes_identification/videos/agi/m/v1.mp4"   # default - overridden by a CLI argument if given
+# VIDEO = "d:/Reneonix/yolo_projects/Wastes_identification/videos/agi/m/v1.mp4"   # default - overridden by a CLI argument if given
+VIDEO = "d:/Reneonix/yolo_projects/Wastes_identification/videos/low_exposure.mp4"   # default - overridden by a CLI argument if given
+
 
 CONF = 0.5    # minimum YOLO detection confidence to keep a box (localization only)
 IMGSZ = 640          # YOLO inference size (matches training imgsz)
