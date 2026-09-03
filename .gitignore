@@ -2,8 +2,10 @@
 data/raw/
 data/versions/
 
-# Demo/source videos - large, not source code
-videos/
+# Demo/source videos (top-level only!) - large, not source code. Must be anchored with a
+# leading "/" - a bare "videos/" also matches Scripts/videos/, which holds actual inference
+# scripts (video_predict.py, yr_*.py, etc.) that belong in the repo.
+/videos/
 
 # Trained weights - large binaries, some exceed GitHub's 100MB limit; code-only repo
 experiments/*/weights/
@@ -13,7 +15,7 @@ models/*.pt
 # wandb local sync caches - large, personal, not reproducible source
 experiments/*/wandb/
 experiments/*/base_stage/wandb/
-wandb/
+/wandb/
 
 # Pretrained base-model checkpoints auto-downloaded by Ultralytics into src/, or the ReID model
 # auto-downloaded to the project root by yr_sahi_botsort.py - re-downloadable, not this
